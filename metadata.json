@@ -1,0 +1,8 @@
+{
+  "name": "Game Học Tập Hóa Học 11: Cân Bằng Hóa Học",
+  "description": "Trò chơi học tập môn Hoá học 11 dạng điền khuyết lý thuyết: phản ứng thuận nghịch, hằng số Kc, thí nghiệm nhiệt độ và nguyên lí Le Chatelier với hệ thống chấm điểm và báo cáo chi tiết.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
