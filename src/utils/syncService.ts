@@ -84,30 +84,78 @@ class SyncService {
     }
   }
 
-  // 5. Google Sheets 2-way sync methods
+  // 5. Google Sheets 2-way sync methods with robust local & server persistence
   async getSheetConfig(): Promise<GoogleSheetConfig> {
+    let localUrl = '';
+    let localAutoSync = true;
+    let localLastSync: string | null = null;
+    try {
+      localUrl = localStorage.getItem('chemistry_google_apps_script_url') || '';
+      const rawConfig = localStorage.getItem('chemistry_sheet_config');
+      if (rawConfig) {
+        const parsed = JSON.parse(rawConfig);
+        if (typeof parsed.appsScriptUrl === 'string') localUrl = parsed.appsScriptUrl;
+        if (typeof parsed.autoSync === 'boolean') localAutoSync = parsed.autoSync;
+        if (parsed.lastSyncTime) localLastSync = parsed.lastSyncTime;
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+
     try {
       const res = await fetch('/api/googlesheet/config');
-      if (!res.ok) throw new Error('Failed to get sheet config');
+      if (!res.ok) throw new Error('Failed to get sheet config from server');
       const data = await res.json();
-      return data.config;
+      if (data && data.config) {
+        const serverConfig: GoogleSheetConfig = data.config;
+        // If server config is empty but local has a valid URL (e.g. server instance was restarted),
+        // restore it to server
+        if (!serverConfig.appsScriptUrl && localUrl) {
+          serverConfig.appsScriptUrl = localUrl;
+          this.saveSheetConfig(localUrl, localAutoSync).catch(() => {});
+        } else if (serverConfig.appsScriptUrl) {
+          try {
+            localStorage.setItem('chemistry_google_apps_script_url', serverConfig.appsScriptUrl);
+            localStorage.setItem('chemistry_sheet_config', JSON.stringify(serverConfig));
+          } catch {
+            // Ignore
+          }
+        }
+        return serverConfig;
+      }
+      return { appsScriptUrl: localUrl, autoSync: localAutoSync, lastSyncTime: localLastSync };
     } catch {
-      return { appsScriptUrl: '', autoSync: true, lastSyncTime: null };
+      return { appsScriptUrl: localUrl, autoSync: localAutoSync, lastSyncTime: localLastSync };
     }
   }
 
   async saveSheetConfig(appsScriptUrl: string, autoSync: boolean): Promise<GoogleSheetConfig | null> {
+    const trimmed = (appsScriptUrl || '').trim();
+    // 1. Immediately save to localStorage for client-side persistence
+    try {
+      localStorage.setItem('chemistry_google_apps_script_url', trimmed);
+      localStorage.setItem(
+        'chemistry_sheet_config',
+        JSON.stringify({ appsScriptUrl: trimmed, autoSync, lastSyncTime: new Date().toLocaleString('vi-VN') })
+      );
+    } catch {
+      // Ignore
+    }
+
+    // 2. Persist to server backend
     try {
       const res = await fetch('/api/googlesheet/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appsScriptUrl, autoSync }),
+        body: JSON.stringify({ appsScriptUrl: trimmed, autoSync }),
       });
-      if (!res.ok) throw new Error('Failed to save sheet config');
+      if (!res.ok) throw new Error('Server returned error while saving config');
       const data = await res.json();
       return data.config;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.warn('Backend sheet config save failed, relying on localStorage:', err?.message);
+      // Return local fallback so user does not experience a failure
+      return { appsScriptUrl: trimmed, autoSync, lastSyncTime: null };
     }
   }
 

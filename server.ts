@@ -170,36 +170,84 @@ app.get('/api/googlesheet/config', (_req: Request, res: Response) => {
 
 // 5b. Update Google Sheets config
 app.post('/api/googlesheet/config', (req: Request, res: Response) => {
-  const { appsScriptUrl, autoSync } = req.body;
+  let { appsScriptUrl, autoSync } = req.body;
   const current = readSheetConfig();
+
+  let cleanUrl = typeof appsScriptUrl === 'string' ? appsScriptUrl.trim().replace(/^["'`]|["'`]$/g, '').trim() : current.appsScriptUrl;
+  
+  // Auto-convert /edit to /exec if Apps Script URL
+  if (cleanUrl.includes('script.google.com') && cleanUrl.endsWith('/edit')) {
+    cleanUrl = cleanUrl.replace(/\/edit$/, '/exec');
+  }
+
   const updated = {
-    appsScriptUrl: typeof appsScriptUrl === 'string' ? appsScriptUrl.trim() : current.appsScriptUrl,
+    appsScriptUrl: cleanUrl,
     autoSync: typeof autoSync === 'boolean' ? autoSync : current.autoSync,
     lastSyncTime: current.lastSyncTime,
   };
   writeSheetConfig(updated);
+  broadcastSSE('CONFIG_UPDATED', updated);
   return res.json({ success: true, config: updated });
 });
 
 // 5c. Test Google Sheet connection
 app.post('/api/googlesheet/test', async (req: Request, res: Response) => {
-  const targetUrl = req.body.appsScriptUrl || readSheetConfig().appsScriptUrl;
+  let targetUrl = req.body.appsScriptUrl || readSheetConfig().appsScriptUrl;
   if (!targetUrl || !targetUrl.trim()) {
-    return res.status(400).json({ success: false, error: 'Chưa cung cấp URL Google Apps Script' });
+    return res.status(400).json({ success: false, error: 'Chưa cung cấp URL Google Apps Script Web App' });
+  }
+
+  let cleanUrl = targetUrl.trim().replace(/^["'`]|["'`]$/g, '').trim();
+  if (cleanUrl.includes('script.google.com') && cleanUrl.endsWith('/edit')) {
+    cleanUrl = cleanUrl.replace(/\/edit$/, '/exec');
+  }
+
+  if (cleanUrl.includes('docs.google.com/spreadsheets')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Đây là link file bảng tính Google Sheet, không phải Web App! Vui lòng vào Tiện ích mở rộng -> Apps Script -> Triển khai -> Lần triển khai mới -> Chọn Ứng dụng web để lấy link có đuôi /exec.',
+    });
   }
 
   try {
-    const response = await fetch(targetUrl.trim(), {
+    const response = await fetch(cleanUrl, {
       method: 'GET',
       redirect: 'follow',
     });
-    if (!response.ok) {
-      return res.status(400).json({ success: false, error: `Google Sheet phản hồi mã HTTP ${response.status}` });
+
+    const responseText = await response.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      // Not pure JSON
     }
-    const data = await response.json();
-    return res.json({ success: true, message: 'Kết nối Google Sheet thành công!', data });
+
+    if (!response.ok) {
+      return res.status(400).json({
+        success: false,
+        error: `Google Apps Script phản hồi mã lỗi HTTP ${response.status}`,
+      });
+    }
+
+    // Check if Google redirected to a login page (common when deployment permission is not "Anyone")
+    if (responseText.includes('accounts.google.com') || responseText.includes('ServiceLogin') || (responseText.includes('<html') && !data)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google Apps Script đang yêu cầu đăng nhập tài khoản. Vui lòng vào Apps Script -> Triển khai lại (Manage deployments) -> Chọn "Ai có quyền truy cập" là "Bất kỳ ai (Anyone)" thay vì "Chỉ mình tôi".',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Kết nối Google Apps Script thành công! Web App phản hồi tốt và sẵn sàng đồng bộ 2 chiều.',
+      data: data || { status: 'ok', preview: responseText.slice(0, 100) },
+    });
   } catch (err: any) {
-    return res.status(400).json({ success: false, error: `Không thể kết nối đến Google Sheet: ${err.message}` });
+    return res.status(400).json({
+      success: false,
+      error: `Không thể kết nối đến URL Web App: ${err.message}`,
+    });
   }
 });
 

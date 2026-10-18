@@ -16,6 +16,7 @@ import { StudentInfoModal } from './components/StudentInfoModal';
 import { ScoreReportModal } from './components/ScoreReportModal';
 import { soundManager } from './utils/audio';
 import { syncService, SyncEventPayload } from './utils/syncService';
+import { shuffleArray } from './utils/shuffle';
 import confetti from 'canvas-confetti';
 import {
   User,
@@ -34,6 +35,7 @@ import {
   Radio,
   Bell,
   X,
+  Shuffle,
 } from 'lucide-react';
 
 const DEFAULT_PROFILE: StudentProfile = {
@@ -48,6 +50,25 @@ export const App: React.FC = () => {
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'exercises' | 'simulator' | 'theory' | 'teacher'>('exercises');
   const [levelFilter, setLevelFilter] = useState<'all' | CognitiveLevel>('all');
+
+  // Cloze exercises with keyword banks automatically shuffled on link open / app load
+  const [exercises, setExercises] = useState(() => {
+    return CURRICULUM_EXERCISES.map((ex) => ({
+      ...ex,
+      wordBank: shuffleArray(ex.wordBank),
+    }));
+  });
+
+  // Action to re-shuffle all keyword banks across all exercises
+  const handleShuffleAllWordBanks = useCallback(() => {
+    soundManager.playPop();
+    setExercises(
+      CURRICULUM_EXERCISES.map((ex) => ({
+        ...ex,
+        wordBank: shuffleArray(ex.wordBank),
+      }))
+    );
+  }, []);
 
   // Student Profile
   const [student, setStudent] = useState<StudentProfile>(() => {
@@ -251,7 +272,7 @@ export const App: React.FC = () => {
 
   // Clear single exercise
   const handleClearExercise = (exerciseId: string) => {
-    const exercise = CURRICULUM_EXERCISES.find((e) => e.id === exerciseId);
+    const exercise = exercises.find((e) => e.id === exerciseId);
     if (!exercise) return;
     setUserAnswers((prev) => {
       const next = { ...prev };
@@ -264,11 +285,11 @@ export const App: React.FC = () => {
 
   // Total Blanks in curriculum
   const totalBlanksCount = useMemo(() => {
-    return CURRICULUM_EXERCISES.reduce(
+    return exercises.reduce(
       (acc, ex) => acc + Object.keys(ex.blanks).length,
       0
     );
-  }, []);
+  }, [exercises]);
 
   // Filled blanks count
   const filledBlanksCount = useMemo(() => {
@@ -278,7 +299,7 @@ export const App: React.FC = () => {
   // Check if an individual blank is correct
   const checkIsBlankCorrect = (blankId: string, input: string): boolean => {
     if (!input || !input.trim()) return false;
-    for (const ex of CURRICULUM_EXERCISES) {
+    for (const ex of exercises) {
       if (ex.blanks[blankId]) {
         const acceptable = ex.blanks[blankId].correctAnswers;
         const cleanInput = input.trim().toLowerCase().normalize('NFC');
@@ -308,7 +329,7 @@ export const App: React.FC = () => {
       van_dung: { total: 0, correct: 0 },
     };
 
-    const exerciseResults: ExerciseResult[] = CURRICULUM_EXERCISES.map((ex) => {
+    const exerciseResults: ExerciseResult[] = exercises.map((ex) => {
       let exCorrect = 0;
       const blankResults: BlankAnswerResult[] = Object.entries(ex.blanks).map(
         ([bId, bItem]) => {
@@ -453,6 +474,13 @@ export const App: React.FC = () => {
     setSubmission(null);
     setIsReportOpen(false);
     setElapsedSeconds(0);
+    // Re-shuffle all keyword banks when retaking test
+    setExercises(
+      CURRICULUM_EXERCISES.map((ex) => ({
+        ...ex,
+        wordBank: shuffleArray(ex.wordBank),
+      }))
+    );
     try {
       localStorage.removeItem('chemistry_user_answers');
       localStorage.removeItem('chemistry_last_submission');
@@ -481,9 +509,9 @@ export const App: React.FC = () => {
 
   // Filter exercises
   const filteredExercises = useMemo(() => {
-    if (levelFilter === 'all') return CURRICULUM_EXERCISES;
-    return CURRICULUM_EXERCISES.filter((ex) => ex.level === levelFilter);
-  }, [levelFilter]);
+    if (levelFilter === 'all') return exercises;
+    return exercises.filter((ex) => ex.level === levelFilter);
+  }, [exercises, levelFilter]);
 
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
@@ -627,7 +655,7 @@ export const App: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              1. Bài Tập Điền Khuyết ({CURRICULUM_EXERCISES.length} Bài)
+              1. Bài Tập Điền Khuyết ({exercises.length} Bài)
             </button>
             <button
               onClick={() => {
@@ -706,71 +734,93 @@ export const App: React.FC = () => {
         {/* Tab 1: Exercises */}
         {activeTab === 'exercises' && (
           <div className="space-y-6">
-            {/* Filter by cognitive level */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+            {/* Filter by cognitive level & shuffle toolbar */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  Hệ Thống Bài Tập Điền Khuyết Cân Bằng Hoá Học
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-bold text-slate-900">
+                    Hệ Thống Bài Tập Điền Khuyết Cân Bằng Hoá Học
+                  </h2>
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200/80 px-2.5 py-0.5 rounded-full shadow-2xs"
+                    title="Ngân hàng từ khóa được tự động xáo trộn ngẫu nhiên khi học sinh mở app"
+                  >
+                    <Shuffle className="w-3 h-3 text-teal-600" />
+                    Từ khóa tự động xáo trộn
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Chọn ô trống rồi bấm từ khóa ở ngân hàng từ hoặc gõ trực tiếp bàn phím tiếng Việt
                 </p>
               </div>
 
-              {/* Segmented control for levels */}
-              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Reshuffle all keyword banks button */}
                 <button
-                  onClick={() => {
-                    soundManager.playPop();
-                    setLevelFilter('all');
-                  }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    levelFilter === 'all'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  type="button"
+                  onClick={handleShuffleAllWordBanks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-white hover:bg-teal-50/80 border border-teal-200 hover:border-teal-300 rounded-lg shadow-2xs transition-all active:scale-95"
+                  title="Xáo trộn lại toàn bộ ngân hàng từ khoá của tất cả các bài tập"
                 >
-                  Tất cả ({CURRICULUM_EXERCISES.length})
+                  <Shuffle className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Xáo trộn từ khoá</span>
                 </button>
-                <button
-                  onClick={() => {
-                    soundManager.playPop();
-                    setLevelFilter('nhan_biet');
-                  }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    levelFilter === 'nhan_biet'
-                      ? 'bg-white text-teal-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Nhận biết (4)
-                </button>
-                <button
-                  onClick={() => {
-                    soundManager.playPop();
-                    setLevelFilter('thong_hieu');
-                  }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    levelFilter === 'thong_hieu'
-                      ? 'bg-white text-teal-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Thông hiểu (2)
-                </button>
-                <button
-                  onClick={() => {
-                    soundManager.playPop();
-                    setLevelFilter('van_dung');
-                  }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    levelFilter === 'van_dung'
-                      ? 'bg-white text-teal-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Vận dụng (3)
-                </button>
+
+                {/* Segmented control for levels */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg shrink-0">
+                  <button
+                    onClick={() => {
+                      soundManager.playPop();
+                      setLevelFilter('all');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      levelFilter === 'all'
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Tất cả ({exercises.length})
+                  </button>
+                  <button
+                    onClick={() => {
+                      soundManager.playPop();
+                      setLevelFilter('nhan_biet');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      levelFilter === 'nhan_biet'
+                        ? 'bg-white text-teal-800 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Nhận biết (4)
+                  </button>
+                  <button
+                    onClick={() => {
+                      soundManager.playPop();
+                      setLevelFilter('thong_hieu');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      levelFilter === 'thong_hieu'
+                        ? 'bg-white text-teal-800 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Thông hiểu (2)
+                  </button>
+                  <button
+                    onClick={() => {
+                      soundManager.playPop();
+                      setLevelFilter('van_dung');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      levelFilter === 'van_dung'
+                        ? 'bg-white text-teal-800 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Vận dụng (3)
+                  </button>
+                </div>
               </div>
             </div>
 

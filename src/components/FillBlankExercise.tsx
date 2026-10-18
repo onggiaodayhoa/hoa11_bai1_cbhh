@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ClozeExercise, BlankAnswerResult } from '../types/chemistry';
-import { HelpCircle, Check, X, Sparkles, RefreshCw } from 'lucide-react';
+import { HelpCircle, Check, X, Sparkles, RefreshCw, Shuffle } from 'lucide-react';
 import { soundManager } from '../utils/audio';
+import { shuffleArray } from '../utils/shuffle';
 
 interface FillBlankExerciseProps {
   exercise: ClozeExercise;
@@ -22,6 +23,21 @@ export const FillBlankExercise: React.FC<FillBlankExerciseProps> = ({
 }) => {
   const [activeBlankId, setActiveBlankId] = useState<string | null>(null);
   const [activeHintBlankId, setActiveHintBlankId] = useState<string | null>(null);
+
+  // Shuffled keyword bank state: ensures random order whenever student opens the app
+  const [shuffledWordBank, setShuffledWordBank] = useState<string[]>(() =>
+    shuffleArray(exercise.wordBank)
+  );
+
+  // Sync / re-shuffle when exercise prop changes
+  useEffect(() => {
+    setShuffledWordBank(shuffleArray(exercise.wordBank));
+  }, [exercise.id, exercise.wordBank]);
+
+  const handleShuffleWordBank = () => {
+    soundManager.playPop();
+    setShuffledWordBank((prev) => shuffleArray(prev));
+  };
 
   // Normalize string for comparison (case-insensitive, trim whitespace, normalize unicode)
   const isAnswerCorrect = (blankId: string, rawAnswer: string): boolean => {
@@ -94,6 +110,7 @@ export const FillBlankExercise: React.FC<FillBlankExerciseProps> = ({
             <button
               onClick={() => {
                 soundManager.playPop();
+                setShuffledWordBank(shuffleArray(exercise.wordBank));
                 onClearExercise();
               }}
               className="text-xs text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors px-2 py-1 rounded-sm"
@@ -202,25 +219,46 @@ export const FillBlankExercise: React.FC<FillBlankExerciseProps> = ({
       {/* Word Bank: Click to Fill */}
       {!showResults && (
         <div className="bg-slate-50 border border-slate-200/90 rounded-lg p-3.5">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-              Ngân hàng từ khoá (Bấm để điền vào ô trống tiếp theo):
-            </span>
-            <span className="text-[11px] text-slate-500">
-              Có thể gõ bàn phím trực tiếp vào ô
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                Ngân hàng từ khoá (Bấm để điền vào ô trống tiếp theo):
+              </span>
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200/70 px-2 py-0.5 rounded-full"
+                title="Các từ khóa đã được tự động xáo trộn ngẫu nhiên"
+              >
+                <Shuffle className="w-2.5 h-2.5 text-teal-600" />
+                Đã xáo trộn ngẫu nhiên
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleShuffleWordBank}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 hover:text-teal-800 bg-white hover:bg-teal-50/50 border border-slate-200 hover:border-teal-300 px-2.5 py-1 rounded-md shadow-2xs transition-all active:scale-95"
+                title="Bấm để xáo trộn lại vị trí các từ trong ngân hàng từ"
+              >
+                <Shuffle className="w-3 h-3 text-teal-600" />
+                <span>Xáo trộn lại</span>
+              </button>
+              <span className="text-[11px] text-slate-500 hidden sm:inline">
+                Có thể gõ bàn phím trực tiếp vào ô
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {exercise.wordBank.map((word, wIdx) => {
+            {shuffledWordBank.map((word, wIdx) => {
               // Check if word is already used in any blank
               const isUsed = Object.values(userAnswers).some(
                 (v) => v.trim().toLowerCase() === word.trim().toLowerCase()
               );
               return (
                 <button
-                  key={wIdx}
+                  key={`${wIdx}-${word}`}
                   type="button"
                   onClick={() => handleWordBankSelect(word)}
                   className={`text-xs font-medium px-3 py-1.5 rounded-md border transition-all ${
