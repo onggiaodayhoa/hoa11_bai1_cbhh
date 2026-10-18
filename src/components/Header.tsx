@@ -1,10 +1,10 @@
 import React from 'react';
-import { Volume2, VolumeX, Atom } from 'lucide-react';
+import { Volume2, VolumeX, Atom, Lock } from 'lucide-react';
 import { soundManager } from '../utils/audio';
 
 interface HeaderProps {
   activeTab: string;
-  onNavigate: (tab: 'exercises' | 'simulator' | 'theory') => void;
+  onNavigate: (tab: 'exercises' | 'simulator' | 'theory' | 'teacher') => void;
   onOpenProfile: () => void;
   onSubmitTest: () => void;
   hasSubmitted: boolean;
@@ -43,8 +43,8 @@ export const Header: React.FC<HeaderProps> = ({
           </a>
         </div>
 
-        {/* Zone 2: 4 clean single-line nav links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+        {/* Zone 2: 5 clean single-line nav links */}
+        <nav className="hidden md:flex items-center gap-5 text-sm font-medium text-slate-600">
           <button
             onClick={() => onNavigate('exercises')}
             className={`whitespace-nowrap shrink-0 hover:text-slate-900 transition-colors py-1 ${
@@ -74,6 +74,15 @@ export const Header: React.FC<HeaderProps> = ({
             className="whitespace-nowrap shrink-0 hover:text-slate-900 transition-colors py-1"
           >
             Hồ Sơ Học Sinh
+          </button>
+          <button
+            onClick={() => onNavigate('teacher')}
+            className={`whitespace-nowrap shrink-0 hover:text-teal-800 transition-colors py-1 flex items-center gap-1 ${
+              activeTab === 'teacher' ? 'text-teal-800 font-semibold border-b-2 border-teal-700' : 'text-slate-700'
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5 text-teal-700" />
+            <span>Giáo Viên</span>
           </button>
         </nav>
 

@@ -11,6 +11,7 @@ import { Header } from './components/Header';
 import { FillBlankExercise } from './components/FillBlankExercise';
 import { LabSimulator } from './components/LabSimulator';
 import { TheoryHandbook } from './components/TheoryHandbook';
+import { TeacherPortal } from './components/TeacherPortal';
 import { StudentInfoModal } from './components/StudentInfoModal';
 import { ScoreReportModal } from './components/ScoreReportModal';
 import { soundManager } from './utils/audio';
@@ -28,26 +29,34 @@ import {
   RotateCcw,
   GraduationCap,
   ChevronRight,
+  Lock,
 } from 'lucide-react';
 
 const DEFAULT_PROFILE: StudentProfile = {
-  fullName: 'Nguyễn Văn An',
-  classGroup: '11A1',
+  fullName: '',
+  classGroup: '',
   schoolName: 'Trường THPT',
-  studentId: 'HS-1101',
+  studentId: '',
   mode: 'practice',
 };
 
 export const App: React.FC = () => {
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'exercises' | 'simulator' | 'theory'>('exercises');
+  const [activeTab, setActiveTab] = useState<'exercises' | 'simulator' | 'theory' | 'teacher'>('exercises');
   const [levelFilter, setLevelFilter] = useState<'all' | CognitiveLevel>('all');
 
   // Student Profile
   const [student, setStudent] = useState<StudentProfile>(() => {
     try {
       const saved = localStorage.getItem('chemistry_student_profile');
-      return saved ? JSON.parse(saved) : DEFAULT_PROFILE;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.fullName === 'Nguyễn Văn An') {
+          return DEFAULT_PROFILE;
+        }
+        return parsed;
+      }
+      return DEFAULT_PROFILE;
     } catch {
       return DEFAULT_PROFILE;
     }
@@ -64,7 +73,7 @@ export const App: React.FC = () => {
     }
   });
 
-  // Test state
+  // Current Test state
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [submission, setSubmission] = useState<TestSubmission | null>(() => {
     try {
@@ -76,6 +85,25 @@ export const App: React.FC = () => {
   });
   const [isReportOpen, setIsReportOpen] = useState(false);
 
+  // All Submissions History (Clean real data only, no sample/test submissions)
+  const [allSubmissions, setAllSubmissions] = useState<TestSubmission[]>(() => {
+    try {
+      const saved = localStorage.getItem('chemistry_all_submissions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((s: TestSubmission) => !s.id?.startsWith('sample_'));
+        }
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Active submission being viewed in detail modal
+  const [inspectedSubmission, setInspectedSubmission] = useState<TestSubmission | null>(null);
+
   // Sound state
   const [soundEnabled, setSoundEnabled] = useState(true);
 
@@ -85,7 +113,9 @@ export const App: React.FC = () => {
   // Save profile to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('chemistry_student_profile', JSON.stringify(student));
+      if (student.fullName) {
+        localStorage.setItem('chemistry_student_profile', JSON.stringify(student));
+      }
     } catch {
       // Ignore
     }
@@ -100,10 +130,20 @@ export const App: React.FC = () => {
     }
   }, [userAnswers]);
 
+  // Save all submissions to localStorage (filtering out any legacy sample data)
+  useEffect(() => {
+    try {
+      const cleanList = allSubmissions.filter((s) => !s.id?.startsWith('sample_'));
+      localStorage.setItem('chemistry_all_submissions', JSON.stringify(cleanList));
+    } catch {
+      // Ignore
+    }
+  }, [allSubmissions]);
+
   // Timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
-    if (!hasSubmitted) {
+    if (!hasSubmitted && activeTab !== 'teacher') {
       interval = setInterval(() => {
         setElapsedSeconds((prev) => prev + 1);
       }, 1000);
@@ -111,7 +151,7 @@ export const App: React.FC = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [hasSubmitted]);
+  }, [hasSubmitted, activeTab]);
 
   // Sound toggle
   const handleToggleSound = () => {
@@ -173,6 +213,13 @@ export const App: React.FC = () => {
   // Submit and Grade the test
   const handleGradeSubmission = () => {
     soundManager.playPop();
+
+    // Check student profile completeness
+    if (!student.fullName.trim() || !student.classGroup.trim()) {
+      soundManager.playWrong();
+      setIsProfileModalOpen(true);
+      return;
+    }
 
     let totalCorrect = 0;
     const levelCounts: Record<CognitiveLevel, { total: number; correct: number }> = {
@@ -285,7 +332,11 @@ export const App: React.FC = () => {
 
     setSubmission(newSubmission);
     setHasSubmitted(true);
+    setInspectedSubmission(newSubmission);
     setIsReportOpen(true);
+
+    // Save to all submissions history for Teacher
+    setAllSubmissions((prev) => [newSubmission, ...prev.filter((s) => s.id !== newSubmission.id)]);
 
     try {
       localStorage.setItem('chemistry_last_submission', JSON.stringify(newSubmission));
@@ -326,6 +377,22 @@ export const App: React.FC = () => {
     }
   };
 
+  // Teacher actions: Delete single submission
+  const handleDeleteSubmission = (id: string) => {
+    setAllSubmissions((prev) => prev.filter((s) => s.id !== id));
+    if (submission?.id === id) {
+      setSubmission(null);
+    }
+  };
+
+  // Teacher actions: Clear all submissions
+  const handleClearAllSubmissions = () => {
+    setAllSubmissions([]);
+    setSubmission(null);
+    localStorage.removeItem('chemistry_all_submissions');
+    localStorage.removeItem('chemistry_last_submission');
+  };
+
   // Filter exercises
   const filteredExercises = useMemo(() => {
     if (levelFilter === 'all') return CURRICULUM_EXERCISES;
@@ -356,63 +423,89 @@ export const App: React.FC = () => {
         scoreScale10={submission ? submission.scoreScale10 : undefined}
       />
 
-      {/* Student Profile & Progress Banner */}
-      <div className="bg-white border-b border-slate-200 no-print">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-800 font-bold shrink-0">
-              <GraduationCap className="w-5 h-5 text-teal-700" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-900">{student.fullName}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="text-xs font-semibold text-teal-800 font-formula">Lớp {student.classGroup}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="text-xs text-slate-500 font-formula">{student.studentId}</span>
+      {/* Student Profile & Progress Banner (Only on student views) */}
+      {activeTab !== 'teacher' && (
+        <div className="bg-white border-b border-slate-200 no-print">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-800 font-bold shrink-0">
+                <GraduationCap className="w-5 h-5 text-teal-700" />
               </div>
-              <div className="text-xs text-slate-500 flex items-center gap-2">
-                <span>{student.schoolName}</span>
-                <span aria-hidden="true">·</span>
-                <button
-                  onClick={() => setIsProfileModalOpen(true)}
-                  className="text-teal-700 hover:underline font-medium"
-                >
-                  Đổi thông tin
-                </button>
+              <div>
+                {student.fullName ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-900">{student.fullName}</span>
+                      <span aria-hidden="true" className="text-slate-300">·</span>
+                      <span className="text-xs font-semibold text-teal-800 font-formula">Lớp {student.classGroup}</span>
+                      {student.studentId && (
+                        <>
+                          <span aria-hidden="true" className="text-slate-300">·</span>
+                          <span className="text-xs text-slate-500 font-formula">{student.studentId}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                      <span>{student.schoolName || 'Trường THPT'}</span>
+                      <span aria-hidden="true">·</span>
+                      <button
+                        onClick={() => setIsProfileModalOpen(true)}
+                        className="text-teal-700 hover:underline font-medium"
+                      >
+                        Đổi thông tin
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-500 italic">
+                        Chưa nhập thông tin học sinh
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                      <button
+                        onClick={() => setIsProfileModalOpen(true)}
+                        className="text-teal-700 hover:text-teal-800 font-bold underline"
+                      >
+                        Điền họ tên & lớp làm bài
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Quick Metrics & Mode */}
-          <div className="flex items-center gap-4 sm:gap-6 shrink-0">
-            {/* Progress indicator */}
-            <div className="flex flex-col items-end">
-              <span className="text-[11px] text-slate-500 font-medium">Tiến độ điền khuyết</span>
-              <span className="text-xs font-bold text-slate-900 font-formula">
-                {filledBlanksCount}/{totalBlanksCount} ô ({Math.round((filledBlanksCount / totalBlanksCount) * 100)}%)
-              </span>
-            </div>
+            {/* Quick Metrics & Mode */}
+            <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+              {/* Progress indicator */}
+              <div className="flex flex-col items-end">
+                <span className="text-[11px] text-slate-500 font-medium">Tiến độ điền khuyết</span>
+                <span className="text-xs font-bold text-slate-900 font-formula">
+                  {filledBlanksCount}/{totalBlanksCount} ô ({Math.round((filledBlanksCount / totalBlanksCount) * 100)}%)
+                </span>
+              </div>
 
-            {/* Timer */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 font-formula text-xs font-semibold text-slate-700">
-              <Clock className="w-3.5 h-3.5 text-teal-600" />
-              <span>{timerDisplay}</span>
-            </div>
+              {/* Timer */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 font-formula text-xs font-semibold text-slate-700">
+                <Clock className="w-3.5 h-3.5 text-teal-600" />
+                <span>{timerDisplay}</span>
+              </div>
 
-            {/* Mode badge */}
-            <div className="text-xs font-semibold px-2.5 py-1 rounded-md bg-teal-50 text-teal-800 border border-teal-200">
-              {student.mode === 'exam' ? 'Kiểm tra 15p' : 'Luyện tập'}
+              {/* Mode badge */}
+              <div className="text-xs font-semibold px-2.5 py-1 rounded-md bg-teal-50 text-teal-800 border border-teal-200">
+                {student.mode === 'exam' ? 'Kiểm tra 15p' : 'Luyện tập'}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Navigation Tabs (Mobile & secondary tab selector) */}
-        <div className="flex items-center justify-between border-b border-slate-200 pb-4 no-print">
-          <div className="flex items-center gap-2 p-1 bg-slate-200/60 rounded-lg">
+        <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-4 gap-3 no-print">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-200/60 rounded-lg">
             <button
               onClick={() => {
                 soundManager.playPop();
@@ -424,7 +517,7 @@ export const App: React.FC = () => {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              1. Bài Tập Điền Khuyết (9 Bài)
+              1. Bài Tập Điền Khuyết ({CURRICULUM_EXERCISES.length} Bài)
             </button>
             <button
               onClick={() => {
@@ -452,28 +545,47 @@ export const App: React.FC = () => {
             >
               3. Tra Cứu Lý Thuyết SGK
             </button>
+            <button
+              onClick={() => {
+                soundManager.playPop();
+                setActiveTab('teacher');
+              }}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 ${
+                activeTab === 'teacher'
+                  ? 'bg-white text-teal-900 shadow-2xs'
+                  : 'text-slate-700 hover:text-teal-800'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5 text-teal-700" />
+              <span>4. Giáo Viên & Google Sheets</span>
+            </button>
           </div>
 
-          {/* Quick CTA to grade */}
-          <div className="hidden sm:flex items-center gap-2">
-            {!hasSubmitted ? (
-              <button
-                onClick={handleGradeSubmission}
-                className="px-4 py-2 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Nộp Bài & Chấm Điểm Ngay</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setIsReportOpen(true)}
-                className="px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
-              >
-                <Award className="w-3.5 h-3.5" />
-                <span>Xem Phiếu Điểm ({submission?.scoreScale10.toFixed(1)}/10)</span>
-              </button>
-            )}
-          </div>
+          {/* Quick CTA to grade (if in student view) */}
+          {activeTab !== 'teacher' && (
+            <div className="hidden sm:flex items-center gap-2">
+              {!hasSubmitted ? (
+                <button
+                  onClick={handleGradeSubmission}
+                  className="px-4 py-2 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Nộp Bài & Chấm Điểm Ngay</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setInspectedSubmission(submission);
+                    setIsReportOpen(true);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Xem Phiếu Điểm ({submission?.scoreScale10.toFixed(1)}/10)</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tab 1: Exercises */}
@@ -554,7 +666,7 @@ export const App: React.FC = () => {
                   <Award className="w-5 h-5 text-teal-700 shrink-0" />
                   <div>
                     <span className="text-sm font-bold text-teal-950">
-                      Bài kiểm tra đã được chấm điểm tự động!
+                      Bài kiểm tra đã được chấm điểm tự động & lưu vào sổ điểm giáo viên!
                     </span>
                     <span className="text-xs text-teal-800 block">
                       Điểm: <strong>{submission.scoreScale10.toFixed(1)}/10</strong> · Xếp loại:{' '}
@@ -564,7 +676,10 @@ export const App: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={() => setIsReportOpen(true)}
+                    onClick={() => {
+                      setInspectedSubmission(submission);
+                      setIsReportOpen(true);
+                    }}
                     className="px-3.5 py-1.5 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg transition-colors"
                   >
                     Xem Phiếu Điểm
@@ -610,7 +725,7 @@ export const App: React.FC = () => {
                   className="px-6 py-2.5 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg shadow-sm transition-all flex items-center gap-1.5"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Chấm Điểm & Đánh Giá Năng Lực</span>
+                  <span>Chấm Điểm & Lưu Sổ Điểm</span>
                 </button>
               </div>
             </div>
@@ -653,6 +768,19 @@ export const App: React.FC = () => {
             <TheoryHandbook />
           </div>
         )}
+
+        {/* Tab 4: Teacher Portal & Google Sheets */}
+        {activeTab === 'teacher' && (
+          <TeacherPortal
+            submissions={allSubmissions}
+            onDeleteSubmission={handleDeleteSubmission}
+            onClearAllSubmissions={handleClearAllSubmissions}
+            onViewSubmissionDetail={(sub) => {
+              setInspectedSubmission(sub);
+              setIsReportOpen(true);
+            }}
+          />
+        )}
       </main>
 
       {/* Footer */}
@@ -662,7 +790,7 @@ export const App: React.FC = () => {
             Phần mềm game học tập Hoá học 11 · Chuyên đề Cân bằng hoá học · Chương trình GDPT 2018
           </p>
           <p className="mt-1 text-slate-400">
-            Hỗ trợ 3 mức độ Nhận biết - Thông hiểu - Vận dụng và mô phỏng thí nghiệm trực quan
+            Hỗ trợ 3 mức độ Nhận biết - Thông hiểu - Vận dụng, mô phỏng thí nghiệm trực quan và sổ điểm giáo viên (xuất Google Sheets)
           </p>
         </div>
       </footer>
@@ -679,9 +807,9 @@ export const App: React.FC = () => {
       />
 
       {/* Score Report & Printable Card Modal */}
-      {submission && (
+      {inspectedSubmission && (
         <ScoreReportModal
-          submission={submission}
+          submission={inspectedSubmission}
           isOpen={isReportOpen}
           onClose={() => setIsReportOpen(false)}
           onRetake={handleRetake}

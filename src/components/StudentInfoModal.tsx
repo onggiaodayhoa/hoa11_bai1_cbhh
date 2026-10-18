@@ -25,6 +25,17 @@ export const StudentInfoModal: React.FC<StudentInfoModalProps> = ({
   const [mode, setMode] = useState<'practice' | 'exam'>(initialProfile.mode);
   const [error, setError] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setFullName(initialProfile.fullName);
+      setClassGroup(initialProfile.classGroup);
+      setSchoolName(initialProfile.schoolName);
+      setStudentId(initialProfile.studentId);
+      setMode(initialProfile.mode);
+      setError(null);
+    }
+  }, [isOpen, initialProfile]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
