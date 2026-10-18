@@ -90,7 +90,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
     message: string;
   } | null>(null);
   const [isTestingConfig, setIsTestingConfig] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
   const [isPullingSheet, setIsPullingSheet] = useState(false);
   const [isPushingSheet, setIsPushingSheet] = useState(false);
   const [sheetSyncNotice, setSheetSyncNotice] = useState<string | null>(null);
@@ -168,13 +168,71 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
     soundManager.playSuccess();
   };
 
+  // URL Validator & Sanitizer for Google Apps Script Web App
+  const validateAppsScriptUrlClient = (raw: string): { valid: boolean; cleanUrl: string; error?: string } => {
+    let clean = (raw || '').trim().replace(/^["'`]|["'`]$/g, '').trim();
+    if (!clean) {
+      return { valid: false, cleanUrl: '', error: 'Vui lòng nhập hoặc dán liên kết Google Apps Script Web App.' };
+    }
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'https://' + clean;
+    }
+
+    if (clean.includes('docs.google.com/spreadsheets')) {
+      return {
+        valid: false,
+        cleanUrl: clean,
+        error: 'Bạn đang dán link file bảng tính Google Sheet (docs.google.com/spreadsheets). Cần dán URL Ứng dụng web (Web App có đuôi /exec). Vui lòng vào Tiện ích mở rộng -> Apps Script -> Triển khai (Deploy) -> Lần triển khai mới -> Chọn Ứng dụng web để lấy URL /exec.',
+      };
+    }
+
+    if (clean.includes('script.google.com/d/') || clean.includes('script.google.com/home/projects')) {
+      return {
+        valid: false,
+        cleanUrl: clean,
+        error: 'Bạn đang dán link chỉnh sửa mã Apps Script (/edit), không phải link Web App! Hãy bấm nút "Triển khai" (Deploy) màu xanh ở góc phải trên -> "Lần triển khai mới" -> Chọn "Ứng dụng web" -> Cấp quyền "Bất kỳ ai (Anyone)" -> Bấm "Triển khai" để copy link có đuôi /exec.',
+      };
+    }
+
+    if (clean.includes('script.google.com') && clean.endsWith('/dev')) {
+      clean = clean.replace(/\/dev$/, '/exec');
+    }
+
+    if (clean.includes('script.google.com/macros/s/') && !clean.endsWith('/exec') && !clean.includes('/exec?')) {
+      clean = clean.replace(/\/+$/, '');
+      if (!clean.endsWith('/exec')) {
+        clean = clean + '/exec';
+      }
+    }
+
+    clean = clean.replace(/\/exec\/+$/, '/exec');
+
+    if (!clean.includes('script.google.com/macros/s/') || !clean.includes('/exec')) {
+      return {
+        valid: false,
+        cleanUrl: clean,
+        error: 'URL Web App chưa đúng cấu trúc chuẩn. URL hợp lệ phải có dạng: https://script.google.com/macros/s/.../exec',
+      };
+    }
+
+    return { valid: true, cleanUrl: clean };
+  };
+
+  const formatFriendlyError = (raw: string | undefined): string => {
+    if (!raw) return 'Đã xảy ra lỗi kết nối. Vui lòng thử lại sau.';
+    if (raw.includes('Unexpected token') || raw.includes('is not valid JSON') || raw.includes('The page c')) {
+      return 'Lỗi phản hồi từ Google (Google trả về "Page not found" hoặc yêu cầu đăng nhập). Hãy kiểm tra URL có đuôi /exec và trong Apps Script đã đặt quyền "Ai có quyền truy cập" là "Bất kỳ ai (Anyone)".';
+    }
+    return raw;
+  };
+
   // Save Google Sheet Apps Script URL
   const handleSaveSheetConfig = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    let cleanUrl = urlInput.trim().replace(/^["'`]|["'`]$/g, '').trim();
+    let raw = urlInput.trim();
 
     // If teacher clears the URL
-    if (!cleanUrl) {
+    if (!raw) {
       setIsSavingConfig(true);
       soundManager.playPop();
       try {
@@ -192,28 +250,18 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
       return;
     }
 
-    // Auto-fix if user copied Apps Script editor URL ending in /edit
-    if (cleanUrl.includes('script.google.com') && cleanUrl.endsWith('/edit')) {
-      cleanUrl = cleanUrl.replace(/\/edit$/, '/exec');
-      setUrlInput(cleanUrl);
-    }
-
-    // Friendly error if user pasted spreadsheet URL
-    if (cleanUrl.includes('docs.google.com/spreadsheets')) {
+    const validation = validateAppsScriptUrlClient(raw);
+    if (!validation.valid) {
       soundManager.playWrong();
       setSaveStatus({
         type: 'error',
-        message: 'Bạn đang dán link bảng tính Google Sheet (docs.google.com/spreadsheets). Cần dán URL Ứng dụng web Apps Script (đuôi /exec). Bấm nút "Mã Apps Script & Mẫu Sheet" để xem video/hướng dẫn lấy URL!',
+        message: validation.error || 'URL không hợp lệ',
       });
       return;
     }
 
-    // Auto-prepend https:// if missing
-    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      cleanUrl = 'https://' + cleanUrl;
-      setUrlInput(cleanUrl);
-    }
-
+    const cleanUrl = validation.cleanUrl;
+    setUrlInput(cleanUrl);
     setIsSavingConfig(true);
     soundManager.playPop();
     setSaveStatus(null);
@@ -239,7 +287,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
       soundManager.playWrong();
       setSaveStatus({
         type: 'error',
-        message: `Lỗi khi lưu cấu hình: ${err?.message || 'Không thể lưu'}`,
+        message: formatFriendlyError(err?.message),
       });
     } finally {
       setIsSavingConfig(false);
@@ -248,8 +296,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
 
   // Test Google Sheet Connection
   const handleTestConnection = async () => {
-    let cleanUrl = urlInput.trim().replace(/^["'`]|["'`]$/g, '').trim();
-    if (!cleanUrl) {
+    let raw = urlInput.trim();
+    if (!raw) {
       soundManager.playWrong();
       setTestResult({
         success: false,
@@ -258,17 +306,28 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
       return;
     }
 
-    if (cleanUrl.includes('script.google.com') && cleanUrl.endsWith('/edit')) {
-      cleanUrl = cleanUrl.replace(/\/edit$/, '/exec');
-      setUrlInput(cleanUrl);
+    const validation = validateAppsScriptUrlClient(raw);
+    if (!validation.valid) {
+      soundManager.playWrong();
+      setTestResult({
+        success: false,
+        message: validation.error || 'URL không hợp lệ',
+      });
+      return;
     }
 
+    const cleanUrl = validation.cleanUrl;
+    setUrlInput(cleanUrl);
     setIsTestingConfig(true);
     soundManager.playPop();
     setTestResult(null);
     try {
       const res = await syncService.testSheetConnection(cleanUrl);
-      setTestResult(res);
+      setTestResult({
+        success: res.success,
+        message: formatFriendlyError(res.message),
+        data: res.data,
+      });
       if (res.success) {
         soundManager.playSuccess();
         // Auto-save on successful test
@@ -278,7 +337,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
             setSheetConfig(updated);
             setSaveStatus({
               type: 'success',
-              message: 'Kết nối kiểm tra thành công và đã tự động lưu URL vào hệ thống!',
+              message: 'Kiểm tra thành công và đã tự động lưu URL vào hệ thống!',
             });
           }
         }
@@ -308,8 +367,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
         }
       } else if (showNotice && res.error) {
         soundManager.playWrong();
-        setSheetSyncNotice(`Lỗi đồng bộ từ Google Sheet: ${res.error}`);
-        setTimeout(() => setSheetSyncNotice(null), 5000);
+        setSheetSyncNotice(`Lỗi đồng bộ từ Google Sheet: ${formatFriendlyError(res.error)}`);
+        setTimeout(() => setSheetSyncNotice(null), 6000);
       }
     } finally {
       setIsPullingSheet(false);
@@ -334,8 +393,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
         setTimeout(() => setSheetSyncNotice(null), 5000);
       } else if (res.error) {
         soundManager.playWrong();
-        setSheetSyncNotice(`Lỗi đẩy dữ liệu: ${res.error}`);
-        setTimeout(() => setSheetSyncNotice(null), 5000);
+        setSheetSyncNotice(`Lỗi đẩy dữ liệu: ${formatFriendlyError(res.error)}`);
+        setTimeout(() => setSheetSyncNotice(null), 6000);
       }
     } finally {
       setIsPushingSheet(false);

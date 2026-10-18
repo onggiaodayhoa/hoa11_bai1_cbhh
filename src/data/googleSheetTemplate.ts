@@ -91,6 +91,19 @@ function doGet(e) {
         var correctMatch = totalCorrectStr.match(/(\\d+)/);
         var totalCorrectNum = correctMatch ? parseInt(correctMatch[1]) : Math.round((Number(row[5]) || 0) * 4.5);
         
+        var rawScore10 = Number(row[5]);
+        var rawScore100 = Number(row[6]);
+        if (isNaN(rawScore10) || rawScore10 > 10 || rawScore10 < 0) {
+          if (!isNaN(rawScore100) && rawScore100 > 0 && rawScore100 <= 100) {
+            rawScore10 = Math.round((rawScore100 / 10) * 10) / 10;
+          } else {
+            rawScore10 = totalCorrectNum ? Math.min(10, Math.round((totalCorrectNum / 45) * 100) / 10) : 0;
+          }
+        }
+        if (isNaN(rawScore100) || rawScore100 > 100 || rawScore100 < 0) {
+          rawScore100 = Math.round(rawScore10 * 10);
+        }
+
         submissions.push({
           id: row[13] ? String(row[13]) : ("sheet_row_" + i),
           submittedAt: row[0] ? String(row[0]) : "",
@@ -101,8 +114,8 @@ function doGet(e) {
             schoolName: String(row[4] || "Trường THPT"),
             mode: "exam"
           },
-          scoreScale10: Number(row[5]) || 0,
-          scoreScale100: Number(row[6]) || 0,
+          scoreScale10: rawScore10,
+          scoreScale100: rawScore100,
           totalCorrect: totalCorrectNum,
           totalBlanks: 45,
           levelStats: {

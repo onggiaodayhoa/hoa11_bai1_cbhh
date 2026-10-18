@@ -1,0 +1,113 @@
+[
+  {
+    "id": "sample_id_101",
+    "submittedAt": "Sun Oct 18 2026 22:30:15 GMT+0700 (Indochina Time)",
+    "student": {
+      "studentId": "HS-1101",
+      "fullName": "Trần Minh Quân",
+      "classGroup": "11A1",
+      "schoolName": "THPT Chu Văn An",
+      "mode": "exam"
+    },
+    "scoreScale10": 9.6,
+    "scoreScale100": 96,
+    "totalCorrect": 43,
+    "totalBlanks": 45,
+    "levelStats": {
+      "nhan_biet": {
+        "total": 19,
+        "correct": 0,
+        "percent": 0
+      },
+      "thong_hieu": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      },
+      "van_dung": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      }
+    },
+    "rankBadge": "Xuất sắc",
+    "durationSeconds": 0,
+    "durationText": "14p 20s",
+    "exerciseResults": [],
+    "teacherFeedback": "Đã đồng bộ từ Google Sheet"
+  },
+  {
+    "id": "sample_id_102",
+    "submittedAt": "Sun Oct 18 2026 22:45:22 GMT+0700 (Indochina Time)",
+    "student": {
+      "studentId": "HS-1102",
+      "fullName": "Lê Thu Hà",
+      "classGroup": "11A1",
+      "schoolName": "THPT Chu Văn An",
+      "mode": "exam"
+    },
+    "scoreScale10": 8.4,
+    "scoreScale100": 84,
+    "totalCorrect": 38,
+    "totalBlanks": 45,
+    "levelStats": {
+      "nhan_biet": {
+        "total": 19,
+        "correct": 0,
+        "percent": 0
+      },
+      "thong_hieu": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      },
+      "van_dung": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      }
+    },
+    "rankBadge": "Giỏi",
+    "durationSeconds": 0,
+    "durationText": "16p 10s",
+    "exerciseResults": [],
+    "teacherFeedback": "Đã đồng bộ từ Google Sheet"
+  },
+  {
+    "id": "sample_id_103",
+    "submittedAt": "Sun Oct 18 2026 23:12:40 GMT+0700 (Indochina Time)",
+    "student": {
+      "studentId": "HS-1103",
+      "fullName": "Nguyễn Hoàng Nam",
+      "classGroup": "11A2",
+      "schoolName": "THPT Kim Liên",
+      "mode": "exam"
+    },
+    "scoreScale10": 7.1,
+    "scoreScale100": 71,
+    "totalCorrect": 32,
+    "totalBlanks": 45,
+    "levelStats": {
+      "nhan_biet": {
+        "total": 19,
+        "correct": 0,
+        "percent": 0
+      },
+      "thong_hieu": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      },
+      "van_dung": {
+        "total": 13,
+        "correct": 0,
+        "percent": 0
+      }
+    },
+    "rankBadge": "Khá",
+    "durationSeconds": 0,
+    "durationText": "18p 45s",
+    "exerciseResults": [],
+    "teacherFeedback": "Đã đồng bộ từ Google Sheet"
+  }
+]

@@ -104,12 +104,16 @@ class SyncService {
 
     try {
       const res = await fetch('/api/googlesheet/config');
-      if (!res.ok) throw new Error('Failed to get sheet config from server');
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Fallback
+      }
+
       if (data && data.config) {
         const serverConfig: GoogleSheetConfig = data.config;
-        // If server config is empty but local has a valid URL (e.g. server instance was restarted),
-        // restore it to server
         if (!serverConfig.appsScriptUrl && localUrl) {
           serverConfig.appsScriptUrl = localUrl;
           this.saveSheetConfig(localUrl, localAutoSync).catch(() => {});
@@ -149,11 +153,20 @@ class SyncService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appsScriptUrl: trimmed, autoSync }),
       });
-      if (!res.ok) throw new Error('Server returned error while saving config');
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Non-JSON
+      }
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Không thể lưu cấu hình (Mã lỗi ${res.status})`);
+      }
       return data.config;
     } catch (err: any) {
-      console.warn('Backend sheet config save failed, relying on localStorage:', err?.message);
+      console.warn('Backend sheet config save error:', err?.message);
       // Return local fallback so user does not experience a failure
       return { appsScriptUrl: trimmed, autoSync, lastSyncTime: null };
     }
@@ -166,22 +179,38 @@ class SyncService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appsScriptUrl }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return { success: false, message: data.error || 'Không thể kết nối đến Google Sheet' };
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Non-JSON
+      }
+
+      if (!res.ok || !data?.success) {
+        const errorMsg = data?.error || (text.includes('<html') ? 'Máy chủ phản hồi trang web thay vì dữ liệu JSON' : text) || 'Không thể kết nối đến Google Sheet';
+        return { success: false, message: errorMsg };
       }
       return { success: true, message: data.message || 'Kết nối Google Sheet thành công!', data: data.data };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Lỗi kết nối' };
+      return { success: false, message: err.message || 'Lỗi kết nối mạng' };
     }
   }
 
   async pullFromSheet(): Promise<{ success: boolean; submissions?: TestSubmission[]; error?: string }> {
     try {
       const res = await fetch('/api/googlesheet/pull', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return { success: false, error: data.error || 'Lỗi đồng bộ từ Google Sheet' };
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Non-JSON
+      }
+
+      if (!res.ok || !data?.success) {
+        const errorMsg = data?.error || (text.includes('<html') ? 'Máy chủ phản hồi mã lỗi trang web thay vì dữ liệu JSON' : text) || 'Lỗi đồng bộ từ Google Sheet';
+        return { success: false, error: errorMsg };
       }
       return { success: true, submissions: data.submissions };
     } catch (err: any) {
@@ -192,9 +221,17 @@ class SyncService {
   async pushAllToSheet(): Promise<{ success: boolean; count?: number; error?: string }> {
     try {
       const res = await fetch('/api/googlesheet/push-all', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return { success: false, error: data.error || 'Lỗi đẩy dữ liệu sang Google Sheet' };
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Non-JSON
+      }
+
+      if (!res.ok || !data?.success) {
+        const errorMsg = data?.error || (text.includes('<html') ? 'Lỗi máy chủ khi đẩy dữ liệu' : text) || 'Lỗi đẩy dữ liệu sang Google Sheet';
+        return { success: false, error: errorMsg };
       }
       return { success: true, count: data.successCount };
     } catch (err: any) {
