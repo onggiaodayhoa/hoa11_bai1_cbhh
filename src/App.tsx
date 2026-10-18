@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   CognitiveLevel,
   StudentProfile,
@@ -15,6 +15,7 @@ import { TeacherPortal } from './components/TeacherPortal';
 import { StudentInfoModal } from './components/StudentInfoModal';
 import { ScoreReportModal } from './components/ScoreReportModal';
 import { soundManager } from './utils/audio';
+import { syncService, SyncEventPayload } from './utils/syncService';
 import confetti from 'canvas-confetti';
 import {
   User,
@@ -30,6 +31,9 @@ import {
   GraduationCap,
   ChevronRight,
   Lock,
+  Radio,
+  Bell,
+  X,
 } from 'lucide-react';
 
 const DEFAULT_PROFILE: StudentProfile = {
@@ -85,7 +89,7 @@ export const App: React.FC = () => {
   });
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // All Submissions History (Clean real data only, no sample/test submissions)
+  // All Submissions History (Synchronized 2-way with server)
   const [allSubmissions, setAllSubmissions] = useState<TestSubmission[]>(() => {
     try {
       const saved = localStorage.getItem('chemistry_all_submissions');
@@ -101,6 +105,12 @@ export const App: React.FC = () => {
     }
   });
 
+  // Sync states
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [liveToast, setLiveToast] = useState<{ message: string; studentName: string; score: number } | null>(null);
+
   // Active submission being viewed in detail modal
   const [inspectedSubmission, setInspectedSubmission] = useState<TestSubmission | null>(null);
 
@@ -109,6 +119,76 @@ export const App: React.FC = () => {
 
   // Timer state for Exam mode
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // 1. Fetch from server function
+  const loadSubmissionsFromServer = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const serverList = await syncService.fetchAllSubmissions();
+      setAllSubmissions(serverList);
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.warn('Sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  // 2. Real-time 2-way Sync Listener (SSE)
+  useEffect(() => {
+    // Initial fetch from server
+    loadSubmissionsFromServer();
+
+    // Connect real-time stream
+    const unsubscribe = syncService.connectRealtime((event: SyncEventPayload) => {
+      if (event.event === 'CONNECTED') {
+        setIsRealtimeConnected(true);
+        if (Array.isArray(event.payload)) {
+          setAllSubmissions(event.payload);
+          setLastSyncedAt(new Date());
+        }
+      } else if (event.event === 'SUBMISSION_ADDED') {
+        const newSub = event.payload as TestSubmission;
+        setAllSubmissions((prev) => {
+          const exists = prev.some((s) => s.id === newSub.id);
+          if (exists) return prev;
+          return [newSub, ...prev];
+        });
+        setLastSyncedAt(new Date());
+
+        // Play gentle chime and trigger live toast
+        soundManager.playPop();
+        setLiveToast({
+          message: `Học sinh ${newSub.student.fullName} (Lớp ${newSub.student.classGroup}) vừa nộp bài!`,
+          studentName: newSub.student.fullName,
+          score: newSub.scoreScale10,
+        });
+
+        // Auto dismiss toast after 5s
+        setTimeout(() => {
+          setLiveToast(null);
+        }, 5000);
+      } else if (event.event === 'SUBMISSION_DELETED') {
+        const { id } = event.payload;
+        setAllSubmissions((prev) => prev.filter((s) => s.id !== id));
+        setLastSyncedAt(new Date());
+      } else if (event.event === 'SUBMISSIONS_CLEARED') {
+        setAllSubmissions([]);
+        setLastSyncedAt(new Date());
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [loadSubmissionsFromServer]);
+
+  // Auto-sync when teacher opens the portal
+  useEffect(() => {
+    if (activeTab === 'teacher') {
+      loadSubmissionsFromServer();
+    }
+  }, [activeTab, loadSubmissionsFromServer]);
 
   // Save profile to localStorage
   useEffect(() => {
@@ -130,7 +210,7 @@ export const App: React.FC = () => {
     }
   }, [userAnswers]);
 
-  // Save all submissions to localStorage (filtering out any legacy sample data)
+  // Save all submissions to localStorage as client safety backup
   useEffect(() => {
     try {
       const cleanList = allSubmissions.filter((s) => !s.id?.startsWith('sample_'));
@@ -210,8 +290,8 @@ export const App: React.FC = () => {
     return false;
   };
 
-  // Submit and Grade the test
-  const handleGradeSubmission = () => {
+  // Submit and Grade the test with 2-way server synchronization
+  const handleGradeSubmission = async () => {
     soundManager.playPop();
 
     // Check student profile completeness
@@ -291,7 +371,7 @@ export const App: React.FC = () => {
     }
 
     const newSubmission: TestSubmission = {
-      id: `sub_${Date.now()}`,
+      id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       student,
       submittedAt: new Date().toLocaleString('vi-VN'),
       durationSeconds: elapsedSeconds,
@@ -335,8 +415,12 @@ export const App: React.FC = () => {
     setInspectedSubmission(newSubmission);
     setIsReportOpen(true);
 
-    // Save to all submissions history for Teacher
+    // 1. Optimistic local update
     setAllSubmissions((prev) => [newSubmission, ...prev.filter((s) => s.id !== newSubmission.id)]);
+
+    // 2. 2-way server sync: Post to server so teacher immediately receives it
+    await syncService.submitTest(newSubmission);
+    setLastSyncedAt(new Date());
 
     try {
       localStorage.setItem('chemistry_last_submission', JSON.stringify(newSubmission));
@@ -377,20 +461,22 @@ export const App: React.FC = () => {
     }
   };
 
-  // Teacher actions: Delete single submission
-  const handleDeleteSubmission = (id: string) => {
+  // Teacher actions: Delete single submission (synced to server)
+  const handleDeleteSubmission = async (id: string) => {
     setAllSubmissions((prev) => prev.filter((s) => s.id !== id));
     if (submission?.id === id) {
       setSubmission(null);
     }
+    await syncService.deleteSubmission(id);
   };
 
-  // Teacher actions: Clear all submissions
-  const handleClearAllSubmissions = () => {
+  // Teacher actions: Clear all submissions (synced to server)
+  const handleClearAllSubmissions = async () => {
     setAllSubmissions([]);
     setSubmission(null);
     localStorage.removeItem('chemistry_all_submissions');
     localStorage.removeItem('chemistry_last_submission');
+    await syncService.clearAll();
   };
 
   // Filter exercises
@@ -405,6 +491,30 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
+      {/* Real-time Toast Notification when a student submits */}
+      {liveToast && (
+        <div className="fixed top-18 right-6 z-50 bg-slate-900 text-white p-4 rounded-xl shadow-xl border border-slate-700 flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <Bell className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
+              <span>Đồng bộ 2 chiều tức thì</span>
+            </div>
+            <div className="text-sm font-semibold text-white mt-0.5">{liveToast.message}</div>
+            <div className="text-xs text-slate-400 font-formula mt-0.5">
+              Điểm đạt được: <strong className="text-teal-300">{liveToast.score.toFixed(1)}/10</strong>
+            </div>
+          </div>
+          <button
+            onClick={() => setLiveToast(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-sm ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Bar adhering to the Top Bar Contract */}
       <Header
         activeTab={activeTab}
@@ -558,6 +668,11 @@ export const App: React.FC = () => {
             >
               <Lock className="w-3.5 h-3.5 text-teal-700" />
               <span>4. Giáo Viên & Google Sheets</span>
+              {allSubmissions.length > 0 && (
+                <span className="text-[10px] bg-teal-800 text-white font-bold px-1.5 py-0.2 rounded-full font-formula">
+                  {allSubmissions.length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -666,7 +781,7 @@ export const App: React.FC = () => {
                   <Award className="w-5 h-5 text-teal-700 shrink-0" />
                   <div>
                     <span className="text-sm font-bold text-teal-950">
-                      Bài kiểm tra đã được chấm điểm tự động & lưu vào sổ điểm giáo viên!
+                      Bài kiểm tra đã được chấm điểm tự động & đồng bộ 2 chiều lên sổ điểm giáo viên!
                     </span>
                     <span className="text-xs text-teal-800 block">
                       Điểm: <strong>{submission.scoreScale10.toFixed(1)}/10</strong> · Xếp loại:{' '}
@@ -725,7 +840,7 @@ export const App: React.FC = () => {
                   className="px-6 py-2.5 text-xs font-bold text-white bg-teal-800 hover:bg-teal-900 rounded-lg shadow-sm transition-all flex items-center gap-1.5"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Chấm Điểm & Lưu Sổ Điểm</span>
+                  <span>Chấm Điểm & Đồng Bộ Lên Máy Chủ</span>
                 </button>
               </div>
             </div>
@@ -769,7 +884,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 4: Teacher Portal & Google Sheets */}
+        {/* Tab 4: Teacher Portal & Google Sheets (with 2-way sync) */}
         {activeTab === 'teacher' && (
           <TeacherPortal
             submissions={allSubmissions}
@@ -779,6 +894,10 @@ export const App: React.FC = () => {
               setInspectedSubmission(sub);
               setIsReportOpen(true);
             }}
+            isSyncing={isSyncing}
+            isRealtimeConnected={isRealtimeConnected}
+            onManualRefresh={loadSubmissionsFromServer}
+            lastSyncedAt={lastSyncedAt}
           />
         )}
       </main>
@@ -790,7 +909,7 @@ export const App: React.FC = () => {
             Phần mềm game học tập Hoá học 11 · Chuyên đề Cân bằng hoá học · Chương trình GDPT 2018
           </p>
           <p className="mt-1 text-slate-400">
-            Hỗ trợ 3 mức độ Nhận biết - Thông hiểu - Vận dụng, mô phỏng thí nghiệm trực quan và sổ điểm giáo viên (xuất Google Sheets)
+            Hỗ trợ 3 mức độ Nhận biết - Thông hiểu - Vận dụng, mô phỏng thí nghiệm trực quan và sổ điểm giáo viên (đồng bộ 2 chiều thời gian thực)
           </p>
         </div>
       </footer>

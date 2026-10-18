@@ -7,6 +7,36 @@
     <meta name="description" content="Trò chơi học tập môn Hoá học 11 dạng điền khuyết lý thuyết: phản ứng thuận nghịch, hằng số Kc, thí nghiệm nhiệt độ và nguyên lí Le Chatelier với hệ thống chấm điểm và báo cáo chi tiết." />
     <meta property="og:title" content="Game Học Tập Hóa Học 11: Cân Bằng Hóa Học" />
     <meta property="og:description" content="Trò chơi học tập môn Hoá học 11 dạng điền khuyết lý thuyết: phản ứng thuận nghịch, hằng số Kc, thí nghiệm nhiệt độ và nguyên lí Le Chatelier với hệ thống chấm điểm và báo cáo chi tiết." />
+    <script>
+      // Defensively define fetch with getter and setter so browser extension interceptors
+      // (e.g. ad blockers, request loggers) attempting to patch `window.fetch = ...` succeed
+      // without throwing "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        try {
+          var realFetch = window.fetch;
+          var customFetch = realFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return customFetch || realFetch;
+            },
+            set: function(fn) {
+              customFetch = fn;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {}
+
+        // Global handler to prevent third-party extension errors from bubbling to console or breaking execution
+        window.addEventListener('error', function(e) {
+          if (e.filename && (e.filename.indexOf('chrome-extension://') !== -1 || e.filename.indexOf('moz-extension://') !== -1)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+        }, true);
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
